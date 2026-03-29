@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NousToolCalling</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Title>NousToolCalling</Title>
+    <Description>Prompt-based (Nous-style) tool calling for IChatClient. Translates between FunctionCallContent/FunctionResultContent and XML-wrapped tool calls used by models like Qwen.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.0" />
+  </ItemGroup>
+
+</Project>
