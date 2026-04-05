@@ -118,18 +118,20 @@ while (true)
 
         if (useStreaming)
         {
-            var streamResponse = pipeline.GetStreamingResponseAsync(history, chatOptions);
-            await foreach (var update in streamResponse)
+            var updates = new List<ChatResponseUpdate>();
+            await foreach (var update in pipeline.GetStreamingResponseAsync(history, chatOptions))
             {
                 if (update.Text is { Length: > 0 } chunk)
                 {
                     Console.Write(chunk);
                 }
+
+                updates.Add(update);
             }
 
             Console.WriteLine();
 
-            var completed = await streamResponse.ToChatResponseAsync();
+            var completed = updates.ToChatResponse();
             history.AddRange(completed.Messages);
         }
         else
