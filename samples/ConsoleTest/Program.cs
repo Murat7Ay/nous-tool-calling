@@ -83,7 +83,10 @@ var chatOptions = new ChatOptions
     Instructions = "You are a helpful assistant. Use tools when needed to answer questions. Be concise.",
 };
 
+var useStreaming = args.Contains("--stream", StringComparer.OrdinalIgnoreCase);
+
 Console.WriteLine("=== Nous Tool Calling Test ===");
+Console.WriteLine($"Mode: {(useStreaming ? "STREAMING" : "NON-STREAMING")}  (pass --stream to toggle)");
 Console.WriteLine("Type a message (or 'quit' to exit).");
 Console.WriteLine("Example prompts:");
 Console.WriteLine("  - What's the weather in Ankara?");
@@ -113,12 +116,31 @@ while (true)
         Console.Write("Assistant: ");
         Console.ResetColor();
 
-        var response = await pipeline.GetResponseAsync(history, chatOptions);
+        if (useStreaming)
+        {
+            var streamResponse = pipeline.GetStreamingResponseAsync(history, chatOptions);
+            await foreach (var update in streamResponse)
+            {
+                if (update.Text is { Length: > 0 } chunk)
+                {
+                    Console.Write(chunk);
+                }
+            }
 
-        var assistantText = response.ToString();
-        Console.WriteLine(string.IsNullOrEmpty(assistantText) ? "(no text)" : assistantText);
+            Console.WriteLine();
 
-        history.AddRange(response.Messages);
+            var completed = await streamResponse.ToChatResponseAsync();
+            history.AddRange(completed.Messages);
+        }
+        else
+        {
+            var response = await pipeline.GetResponseAsync(history, chatOptions);
+
+            var assistantText = response.ToString();
+            Console.WriteLine(string.IsNullOrEmpty(assistantText) ? "(no text)" : assistantText);
+
+            history.AddRange(response.Messages);
+        }
     }
     catch (Exception ex)
     {

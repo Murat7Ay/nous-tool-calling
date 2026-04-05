@@ -76,17 +76,64 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         var (transformedMessages, transformedOptions) = TransformRequest(messages, options);
 
         var accumulated = new StringBuilder();
-        var updates = new List<ChatResponseUpdate>();
+        int yieldedUpTo = 0;
+        bool toolCallRegionStarted = false;
+        ChatResponseUpdate? lastUpdate = null;
+
+        const string toolCallOpenTag = "<tool_call>";
+        const string thinkOpenTag = "<think>";
 
         await foreach (var update in base.GetStreamingResponseAsync(transformedMessages, transformedOptions, cancellationToken).ConfigureAwait(false))
         {
+            lastUpdate = update;
+
             if (update.Text is { Length: > 0 } text)
             {
                 accumulated.Append(text);
             }
 
-            updates.Add(update);
-            yield return update;
+            if (toolCallRegionStarted)
+            {
+                continue;
+            }
+
+            var soFar = accumulated.ToString();
+
+            var toolCallIdx = soFar.IndexOf(toolCallOpenTag, StringComparison.Ordinal);
+            var thinkIdx = soFar.IndexOf(thinkOpenTag, StringComparison.Ordinal);
+
+            int safeEnd;
+            if (toolCallIdx >= 0)
+            {
+                safeEnd = toolCallIdx;
+                toolCallRegionStarted = true;
+            }
+            else
+            {
+                // Hold back a partial-tag buffer so we don't emit half of "<tool_call>"
+                var tagMaxLen = toolCallOpenTag.Length - 1;
+                safeEnd = Math.Max(yieldedUpTo, soFar.Length - tagMaxLen);
+
+                if (_options.StrictThinkMode && thinkIdx >= 0
+                    && soFar.IndexOf("</think>", StringComparison.Ordinal) < 0)
+                {
+                    safeEnd = Math.Min(safeEnd, thinkIdx);
+                }
+            }
+
+            if (safeEnd > yieldedUpTo)
+            {
+                var safeText = soFar[yieldedUpTo..safeEnd];
+                yield return new ChatResponseUpdate
+                {
+                    Role = ChatRole.Assistant,
+                    Contents = [new TextContent(safeText)],
+                    ResponseId = update.ResponseId,
+                    MessageId = update.MessageId,
+                    ConversationId = update.ConversationId,
+                };
+                yieldedUpTo = safeEnd;
+            }
         }
 
         var fullContent = accumulated.ToString();
@@ -94,6 +141,30 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
 
         if (parseResult.CompletedCalls.Count > 0)
         {
+            // Yield any remaining clean text that wasn't emitted yet
+            if (parseResult.Text.Length > 0)
+            {
+                var alreadyYielded = yieldedUpTo > 0 ? fullContent[..yieldedUpTo].Trim() : "";
+                var remainingText = parseResult.Text;
+
+                if (alreadyYielded.Length > 0 && remainingText.StartsWith(alreadyYielded, StringComparison.Ordinal))
+                {
+                    remainingText = remainingText[alreadyYielded.Length..].TrimStart();
+                }
+
+                if (remainingText.Length > 0)
+                {
+                    yield return new ChatResponseUpdate
+                    {
+                        Role = ChatRole.Assistant,
+                        Contents = [new TextContent(remainingText)],
+                        ResponseId = lastUpdate?.ResponseId,
+                        MessageId = lastUpdate?.MessageId,
+                        ConversationId = lastUpdate?.ConversationId,
+                    };
+                }
+            }
+
             var toolCallContents = new List<AIContent>();
             foreach (var call in parseResult.CompletedCalls)
             {
@@ -101,16 +172,31 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
                 toolCallContents.Add(new FunctionCallContent(callId, call.Name, call.Arguments));
             }
 
-            var lastUpdate = updates.Count > 0 ? updates[^1] : null;
-
             yield return new ChatResponseUpdate
             {
                 Role = ChatRole.Assistant,
                 Contents = toolCallContents,
+                FinishReason = ChatFinishReason.ToolCalls,
                 ResponseId = lastUpdate?.ResponseId,
                 MessageId = lastUpdate?.MessageId,
                 ConversationId = lastUpdate?.ConversationId,
             };
+        }
+        else if (yieldedUpTo < fullContent.Length)
+        {
+            // No tool calls found, yield any remaining buffered text
+            var remaining = fullContent[yieldedUpTo..];
+            if (remaining.Length > 0)
+            {
+                yield return new ChatResponseUpdate
+                {
+                    Role = ChatRole.Assistant,
+                    Contents = [new TextContent(remaining)],
+                    ResponseId = lastUpdate?.ResponseId,
+                    MessageId = lastUpdate?.MessageId,
+                    ConversationId = lastUpdate?.ConversationId,
+                };
+            }
         }
     }
 

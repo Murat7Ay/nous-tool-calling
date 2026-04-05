@@ -40,6 +40,9 @@ bld/
 .DS_Store
 Thumbs.db
 
+## Reference repos (not committed)
+references/
+
 ## Secrets
 .env
 *.env
