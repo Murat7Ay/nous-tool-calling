@@ -83,19 +83,39 @@ If the order is reversed, `FunctionInvokingChatClient` will see raw XML text ins
 - Supports `<think>` block handling (strict and lenient modes)
 - Works with both `GetResponseAsync` and `GetStreamingResponseAsync`
 
+## Microsoft Agent Framework composition
+
+For **ChatClientAgent**, RAG (`TextSearchProvider`), **MCP tools** as local `AIFunction`, **multi-agent workflows**, telemetry, and sessions, use the optional layer:
+
+- **`NousToolCalling.AgentFramework`** — references [Microsoft.Agents.AI](https://www.nuget.org/packages/Microsoft.Agents.AI/) and related packages; provides `NousChatClientPipeline` and `McpToolHost` (uses [`McpClient.ListToolsAsync`](https://learn.microsoft.com/dotnet/ai/quickstarts/build-mcp-client) → `McpClientTool` / `AITool`, not ad-hoc wrappers).
+- **Samples** (use the same env vars as `samples/ConsoleTest`: `OPENAI_ENDPOINT`, `OPENAI_MODEL`, `OPENAI_API_KEY`):
+
+| Project | Purpose |
+|--------|---------|
+| `samples/AgentWithChatClientAgent` | `ChatClientAgent` + tools over Nous pipeline |
+| `samples/AgentWithRag` | `TextSearchProvider` (mock RAG) |
+| `samples/AgentWithMcp` | MCP HTTP — `McpToolHost` loads **all** tools from `MCP_ENDPOINT` |
+| `samples/AgentCopilotKitMcp` | [CopilotKit hosted MCP](https://mcp.copilotkit.ai/mcp) — default URL; `dotnet run -- --list-mcp-tools` needs no LLM; full run needs `OPENAI_*` |
+| `samples/AgentMultiWorkflow` | `AgentWorkflowBuilder.BuildSequential` |
+| `samples/AgentWithSubAgentAsTool` | `AsAIFunction` delegation |
+| `samples/AgentProdPatterns` | `OpenTelemetryAgent` + `CreateSessionAsync` |
+| `samples/ConsoleTest` | **Unified interactive chat**: Nous tools, optional **RAG** (`ENABLE_RAG`), optional **MCP** (`MCP_ENDPOINT`), `ChatClientAgent` session |
+
+Docs: [docs/PRODUCTION_PATTERNS.md](docs/PRODUCTION_PATTERNS.md), [docs/PHASE2_AGUI_COPILOTKIT.md](docs/PHASE2_AGUI_COPILOTKIT.md).
+
+**Environment variables:** all samples share `OPENAI_ENDPOINT`, `OPENAI_MODEL`, and `OPENAI_API_KEY`. MCP is optional via `MCP_ENDPOINT`; every sample that uses MCP registers **all** tools returned by `ListToolsAsync` (no per-tool filter).
+
 ## Project Structure
 
 ```
 nous-tool-calling/
-├── src/NousToolCalling/              # Core library
-│   ├── NousToolCallingChatClient.cs  # Main DelegatingChatClient decorator
-│   ├── NousToolCallParser.cs         # Stateless XML tool-call parser
-│   ├── NousToolPromptBuilder.cs      # Builds <tools> prompt section
-│   ├── NousToolCallingOptions.cs     # Configuration
-│   └── NousToolCallingChatClientExtensions.cs  # UseNousToolCalling() extension
-├── tests/NousToolCalling.UnitTests/  # 27 unit tests
-├── samples/ConsoleTest/              # Interactive console demo
-├── NousToolCalling.slnx
+├── src/NousToolCalling/                 # Core library (M.E.AI only)
+├── src/NousToolCalling.AgentFramework/ # Composition + MCP host
+├── tests/NousToolCalling.UnitTests/
+├── samples/ConsoleTest/
+├── samples/AgentWith*.csproj            # Agent Framework scenarios
+├── docs/
+├── NousToolCalling.sln
 └── README.md
 ```
 
@@ -105,18 +125,19 @@ nous-tool-calling/
 dotnet test
 ```
 
-## Running the Console Sample
+## Running the Console Sample (`ConsoleTest`)
 
-The console sample connects to an OpenAI-compatible endpoint with dummy tools (weather, search, calculator):
+One REPL combines **local demo tools** (weather, KB search, calculator), **mock HR RAG** via `TextSearchProvider` (toggle with `ENABLE_RAG=false`), and **optional MCP** tools (e.g. CopilotKit: `MCP_ENDPOINT=https://mcp.copilotkit.ai/mcp`). Uses `ChatClientAgent` + session for multi-turn.
 
-```bash
-# Set environment variables
-export OPENAI_API_KEY="your-key"
-export OPENAI_ENDPOINT="https://api.openai.com/v1"  # or your local endpoint
-export OPENAI_MODEL="gpt-4o-mini"                    # or your model name
+```powershell
+$env:OPENAI_API_KEY = "your-key"   # or "not-needed" for many local servers — PowerShell
+$env:OPENAI_ENDPOINT = "https://api.openai.com/v1"
+$env:OPENAI_MODEL = "gpt-4o-mini"
+$env:MCP_ENDPOINT = "https://mcp.copilotkit.ai/mcp"   # optional; loads every tool from that server
+# $env:ENABLE_RAG = "false"                             # optional: turn off RAG
 
-# Run
 dotnet run --project samples/ConsoleTest
+dotnet run --project samples/ConsoleTest -- --stream
 ```
 
 ## License

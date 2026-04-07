@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "ListMcpToolsOnly": {
+      "commandName": "Project",
+      "commandLineArgs": "--list-mcp-tools",
+      "environmentVariables": {
+        "MCP_ENDPOINT": "https://mcp.copilotkit.ai/mcp"
+      }
+    },
+    "FullAgent": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "MCP_ENDPOINT": "https://mcp.copilotkit.ai/mcp",
+        "OPENAI_ENDPOINT": "REPLACE_WITH_YOUR_OPENAI_COMPAT_URL",
+        "OPENAI_MODEL": "REPLACE_MODEL",
+        "OPENAI_API_KEY": "REPLACE_OR_not-needed"
+      }
+    }
+  }
+}

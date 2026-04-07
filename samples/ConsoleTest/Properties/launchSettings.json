@@ -1,0 +1,21 @@
+{
+  "profiles": {
+    "ConsoleTest": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "OPENAI_ENDPOINT": "https://api.openai.com/v1",
+        "OPENAI_MODEL": "gpt-5-mini",
+        "OPENAI_API_KEY": "REPLACE_OR_set_in_user_secrets",
+        "MCP_ENDPOINT": "https://mcp.copilotkit.ai/mcp"
+      }
+    },
+    "LocalQwenNoMcp": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "OPENAI_ENDPOINT": "http://localhost:8080/v1",
+        "OPENAI_MODEL": "qwen3-32b",
+        "OPENAI_API_KEY": "not-needed"
+      }
+    }
+  }
+}
