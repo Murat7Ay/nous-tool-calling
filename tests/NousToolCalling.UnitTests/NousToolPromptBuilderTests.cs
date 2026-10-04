@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft. All rights reserved.
+// Copyright (c) Murat Ay. Licensed under the MIT License.
 
 using NousToolCalling;
 using Microsoft.Extensions.AI;

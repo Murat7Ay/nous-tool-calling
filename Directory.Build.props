@@ -1,0 +1,13 @@
+<Project>
+
+  <PropertyGroup>
+    <Authors>Murat Ay</Authors>
+    <Copyright>Copyright (c) Murat Ay</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Murat7Ay/nous-tool-calling</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Murat7Ay/nous-tool-calling</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ai;llm;tool-calling;function-calling;qwen;hermes;nous;microsoft-extensions-ai;ichatclient;agent-framework;mcp</PackageTags>
+  </PropertyGroup>
+
+</Project>

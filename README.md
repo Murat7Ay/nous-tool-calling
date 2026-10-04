@@ -1,8 +1,25 @@
 # NousToolCalling
 
-Prompt-based (Nous-style) tool calling for .NET `IChatClient` pipelines.
+[![CI](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml/badge.svg)](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml)
+[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Prompt-based (Nous/Hermes-style) tool calling for .NET `IChatClient` pipelines.
 
 Translates between `FunctionCallContent`/`FunctionResultContent` (the standard `Microsoft.Extensions.AI` protocol) and the **XML-wrapped tool call format** used by models like Qwen, DeepSeek, and other open-source LLMs that don't support native OpenAI `tools`/`tool_calls` API.
+
+## Why?
+
+Self-hosted models (Qwen, Hermes, DeepSeek, …) served through vLLM, llama.cpp, Ollama, or similar OpenAI-compatible endpoints often **don't populate the `tool_calls` field**. Instead they emit tool calls as XML inside the plain-text reply. `Microsoft.Extensions.AI`'s `FunctionInvokingChatClient` never sees those, so your tools never run.
+
+NousToolCalling is a single decorator that closes that gap. Drop it into the pipeline and the model's raw output:
+
+```text
+Let me check that for you.
+<tool_call>{"name": "get_weather", "arguments": {"city": "Istanbul"}}</tool_call>
+```
+
+becomes a standard `FunctionCallContent("get_weather", { city = "Istanbul" })` that `FunctionInvokingChatClient` and Microsoft Agent Framework handle like any native tool call. No changes to your tools or agents.
 
 ## How It Works
 
@@ -16,10 +33,11 @@ Many open-source models use a prompt-driven tool calling convention (originating
 
 ## Installation
 
-This project targets .NET 9+ and depends only on [`Microsoft.Extensions.AI`](https://www.nuget.org/packages/Microsoft.Extensions.AI/) (10.4.0).
+The core library targets .NET 9+ and depends only on [`Microsoft.Extensions.AI`](https://www.nuget.org/packages/Microsoft.Extensions.AI/) (10.4.0). It isn't on NuGet yet, so clone the repo and add a project reference:
 
 ```bash
-dotnet build
+git clone https://github.com/Murat7Ay/nous-tool-calling.git
+dotnet add <YourProject>.csproj reference nous-tool-calling/src/NousToolCalling/NousToolCalling.csproj
 ```
 
 ## Usage
@@ -112,8 +130,8 @@ nous-tool-calling/
 ├── src/NousToolCalling/                 # Core library (M.E.AI only)
 ├── src/NousToolCalling.AgentFramework/ # Composition + MCP host
 ├── tests/NousToolCalling.UnitTests/
-├── samples/ConsoleTest/
-├── samples/AgentWith*.csproj            # Agent Framework scenarios
+├── samples/ConsoleTest/                 # Unified interactive REPL
+├── samples/Agent*/                      # Agent Framework scenarios
 ├── docs/
 ├── NousToolCalling.sln
 └── README.md
@@ -142,4 +160,4 @@ dotnet run --project samples/ConsoleTest -- --stream
 
 ## License
 
-Copyright (c) Microsoft. All rights reserved.
+[MIT](LICENSE) © Murat Ay
