@@ -34,9 +34,14 @@ Many open-source models use a prompt-driven tool calling convention (originating
 
 ## Installation
 
+| Package | NuGet | What it is |
+|---|---|---|
+| `NousToolCalling` | [![NuGet](https://img.shields.io/nuget/v/NousToolCalling.svg)](https://www.nuget.org/packages/NousToolCalling) | Core `IChatClient` decorator, depends only on `Microsoft.Extensions.AI` |
+| `NousToolCalling.AgentFramework` | [![NuGet](https://img.shields.io/nuget/v/NousToolCalling.AgentFramework.svg)](https://www.nuget.org/packages/NousToolCalling.AgentFramework) | Optional: one-call Agent Framework pipeline + MCP tool host |
+
 ```bash
-dotnet add package NousToolCalling                  # core decorator (depends only on Microsoft.Extensions.AI)
-dotnet add package NousToolCalling.AgentFramework   # optional: ChatClientAgent pipeline + MCP tool host
+dotnet add package NousToolCalling
+dotnet add package NousToolCalling.AgentFramework   # optional
 ```
 
 Targets .NET 8, 9 and 10. Built against Microsoft.Extensions.AI 10.10, Microsoft Agent Framework 1.23 and the MCP C# SDK 2.2.
