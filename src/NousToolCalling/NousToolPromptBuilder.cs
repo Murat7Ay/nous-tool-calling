@@ -12,7 +12,9 @@ namespace NousToolCalling;
 /// </summary>
 public static class NousToolPromptBuilder
 {
-    private static readonly JsonSerializerOptions s_compactJson = new() { WriteIndented = false };
+    // AIJsonUtilities.DefaultOptions keeps non-ASCII text (e.g. Turkish) readable instead of \uXXXX escapes,
+    // which saves tokens and keeps prompts understandable for the model.
+    private static readonly JsonSerializerOptions s_compactJson = AIJsonUtilities.DefaultOptions;
 
     /// <summary>
     /// Converts a collection of <see cref="AITool"/> instances into a Nous-format tools instruction

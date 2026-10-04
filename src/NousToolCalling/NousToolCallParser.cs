@@ -110,6 +110,19 @@ public static class NousToolCallParser
 
             if (closeIdx < 0)
             {
+                // Some models omit the closing tag on the last call. Accept it if the rest is a
+                // complete call; otherwise (e.g. truncated output) keep it as text so nothing is lost.
+                var tail = work[contentStart..].Trim();
+                var tailCall = TryParseToolCallJson(tail);
+                if (tailCall is not null)
+                {
+                    completedCalls.Add(new NousCompletedToolCall(tailCall.Value.Name, tailCall.Value.Arguments, ordinal++));
+                }
+                else
+                {
+                    textParts.Add(string.Concat(ToolCallOpen, tail));
+                }
+
                 break;
             }
 
@@ -154,23 +167,45 @@ public static class NousToolCallParser
                 return null;
             }
 
-            if (!root.TryGetProperty("arguments", out var argsElement) || argsElement.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
             var arguments = new Dictionary<string, object?>();
-            foreach (var prop in argsElement.EnumerateObject())
+
+            // "parameters" is a common alias (Llama-style); a missing key means a no-arg call.
+            if (!root.TryGetProperty("arguments", out var argsElement) && !root.TryGetProperty("parameters", out argsElement))
             {
-                arguments[prop.Name] = ConvertJsonElement(prop.Value);
+                return (name, arguments);
             }
 
-            return (name, arguments);
+            if (argsElement.ValueKind == JsonValueKind.String)
+            {
+                // Some models emit the arguments object as a JSON-encoded string.
+                using var argsDoc = JsonDocument.Parse(argsElement.GetString()!);
+                return argsDoc.RootElement.ValueKind == JsonValueKind.Object
+                    ? (name, ToDictionary(argsDoc.RootElement))
+                    : null;
+            }
+
+            if (argsElement.ValueKind == JsonValueKind.Null)
+            {
+                return (name, arguments);
+            }
+
+            return argsElement.ValueKind == JsonValueKind.Object ? (name, ToDictionary(argsElement)) : null;
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    private static Dictionary<string, object?> ToDictionary(JsonElement obj)
+    {
+        var result = new Dictionary<string, object?>();
+        foreach (var prop in obj.EnumerateObject())
+        {
+            result[prop.Name] = ConvertJsonElement(prop.Value);
+        }
+
+        return result;
     }
 
     private static object? ConvertJsonElement(JsonElement element)

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml/badge.svg)](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/NousToolCalling.svg)](https://www.nuget.org/packages/NousToolCalling)
-[![.NET 8 | 9](https://img.shields.io/badge/.NET-8.0%20%7C%209.0-512BD4)](https://dotnet.microsoft.com/)
+[![.NET 8 | 9 | 10](https://img.shields.io/badge/.NET-8%20%7C%209%20%7C%2010-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Prompt-based (Nous/Hermes-style) tool calling for .NET `IChatClient` pipelines.
@@ -39,7 +39,7 @@ dotnet add package NousToolCalling                  # core decorator (depends on
 dotnet add package NousToolCalling.AgentFramework   # optional: ChatClientAgent pipeline + MCP tool host
 ```
 
-Targets .NET 8 and .NET 9.
+Targets .NET 8, 9 and 10. Built against Microsoft.Extensions.AI 10.10, Microsoft Agent Framework 1.23 and the MCP C# SDK 2.2.
 
 ## Usage
 
@@ -90,7 +90,7 @@ If the order is reversed, `FunctionInvokingChatClient` will see raw XML text ins
 |---|---|---|
 | `StrictThinkMode` | `true` | Defer tool-call extraction while a `<think>` block is open (prevents false positives during model reasoning) |
 | `PreserveThinkBlocks` | `false` | Store `<think>` content in `message.AdditionalProperties["nous_think"]` |
-| `ToolCallIdPrefix` | `"nous"` | Prefix for generated synthetic call IDs (`{prefix}_{ordinal}`) |
+| `ToolCallIdPrefix` | `"nous"` | Prefix for generated call IDs (`{prefix}_{responseKey}_{ordinal}`, unique per response) |
 
 ## Features
 
@@ -100,7 +100,9 @@ If the order is reversed, `FunctionInvokingChatClient` will see raw XML text ins
 - Converts `FunctionCallContent` back to `<tool_call>` XML on outbound requests (multi-turn)
 - Converts `FunctionResultContent` to `<tool_response>` XML in user messages
 - Supports `<think>` block handling (strict and lenient modes)
-- Works with both `GetResponseAsync` and `GetStreamingResponseAsync`
+- Works with both `GetResponseAsync` and `GetStreamingResponseAsync` (usage, finish reason and other non-text content pass through)
+- Respects `ChatOptions.ToolMode` (`None`, `RequireAny`, `RequireSpecific`) and `AllowMultipleToolCalls` via prompt instructions
+- Tolerates common model quirks: stringified `arguments`, `parameters` alias, missing `arguments`, missing closing `</tool_call>`
 
 ## Microsoft Agent Framework composition
 

@@ -39,7 +39,7 @@ namespace NousToolCalling;
 /// </remarks>
 public sealed class NousToolCallingChatClient : DelegatingChatClient
 {
-    private static readonly JsonSerializerOptions s_compactJson = new() { WriteIndented = false };
+    private static readonly JsonSerializerOptions s_compactJson = AIJsonUtilities.DefaultOptions;
 
     private readonly NousToolCallingOptions _options;
 
@@ -79,6 +79,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         int yieldedUpTo = 0;
         bool toolCallRegionStarted = false;
         ChatResponseUpdate? lastUpdate = null;
+        ChatFinishReason? finishReason = null;
 
         const string toolCallOpenTag = "<tool_call>";
         const string thinkOpenTag = "<think>";
@@ -86,10 +87,25 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         await foreach (var update in base.GetStreamingResponseAsync(transformedMessages, transformedOptions, cancellationToken).ConfigureAwait(false))
         {
             lastUpdate = update;
+            finishReason = update.FinishReason ?? finishReason;
 
-            if (update.Text is { Length: > 0 } text)
+            // Text is buffered and re-emitted below; everything else (usage, reasoning, ...) passes through as-is.
+            List<AIContent>? passThrough = null;
+            foreach (var content in update.Contents)
             {
-                accumulated.Append(text);
+                if (content is TextContent tc)
+                {
+                    accumulated.Append(tc.Text);
+                }
+                else
+                {
+                    (passThrough ??= []).Add(content);
+                }
+            }
+
+            if (passThrough is not null)
+            {
+                yield return CreateUpdate(update, passThrough);
             }
 
             if (toolCallRegionStarted)
@@ -123,15 +139,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
 
             if (safeEnd > yieldedUpTo)
             {
-                var safeText = soFar[yieldedUpTo..safeEnd];
-                yield return new ChatResponseUpdate
-                {
-                    Role = ChatRole.Assistant,
-                    Contents = [new TextContent(safeText)],
-                    ResponseId = update.ResponseId,
-                    MessageId = update.MessageId,
-                    ConversationId = update.ConversationId,
-                };
+                yield return CreateUpdate(update, [new TextContent(soFar[yieldedUpTo..safeEnd])]);
                 yieldedUpTo = safeEnd;
             }
         }
@@ -141,63 +149,54 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
 
         if (parseResult.CompletedCalls.Count > 0)
         {
-            // Yield any remaining clean text that wasn't emitted yet
-            if (parseResult.Text.Length > 0)
+            // Only the not-yet-emitted tail can still contain text the caller hasn't seen.
+            var remainingText = NousToolCallParser.Parse(fullContent[yieldedUpTo..], _options.StrictThinkMode).Text;
+            if (remainingText.Length > 0)
             {
-                var alreadyYielded = yieldedUpTo > 0 ? fullContent[..yieldedUpTo].Trim() : "";
-                var remainingText = parseResult.Text;
-
-                if (alreadyYielded.Length > 0 && remainingText.StartsWith(alreadyYielded, StringComparison.Ordinal))
-                {
-                    remainingText = remainingText[alreadyYielded.Length..].TrimStart();
-                }
-
-                if (remainingText.Length > 0)
-                {
-                    yield return new ChatResponseUpdate
-                    {
-                        Role = ChatRole.Assistant,
-                        Contents = [new TextContent(remainingText)],
-                        ResponseId = lastUpdate?.ResponseId,
-                        MessageId = lastUpdate?.MessageId,
-                        ConversationId = lastUpdate?.ConversationId,
-                    };
-                }
+                yield return CreateUpdate(lastUpdate, [new TextContent(remainingText)]);
             }
 
-            var toolCallContents = new List<AIContent>();
-            foreach (var call in parseResult.CompletedCalls)
-            {
-                var callId = $"{_options.ToolCallIdPrefix}_{call.Ordinal}";
-                toolCallContents.Add(new FunctionCallContent(callId, call.Name, call.Arguments));
-            }
-
-            yield return new ChatResponseUpdate
-            {
-                Role = ChatRole.Assistant,
-                Contents = toolCallContents,
-                FinishReason = ChatFinishReason.ToolCalls,
-                ResponseId = lastUpdate?.ResponseId,
-                MessageId = lastUpdate?.MessageId,
-                ConversationId = lastUpdate?.ConversationId,
-            };
+            var final = CreateUpdate(lastUpdate, CreateFunctionCalls(parseResult));
+            final.FinishReason = ChatFinishReason.ToolCalls;
+            yield return final;
         }
-        else if (yieldedUpTo < fullContent.Length)
+        else
         {
-            // No tool calls found, yield any remaining buffered text
+            // No tool calls found: flush buffered text and surface the leaf's finish reason.
             var remaining = fullContent[yieldedUpTo..];
-            if (remaining.Length > 0)
+            if (remaining.Length > 0 || finishReason is not null)
             {
-                yield return new ChatResponseUpdate
-                {
-                    Role = ChatRole.Assistant,
-                    Contents = [new TextContent(remaining)],
-                    ResponseId = lastUpdate?.ResponseId,
-                    MessageId = lastUpdate?.MessageId,
-                    ConversationId = lastUpdate?.ConversationId,
-                };
+                var final = CreateUpdate(lastUpdate, remaining.Length > 0 ? [new TextContent(remaining)] : []);
+                final.FinishReason = finishReason;
+                yield return final;
             }
         }
+    }
+
+    private static ChatResponseUpdate CreateUpdate(ChatResponseUpdate? source, IList<AIContent> contents) => new()
+    {
+        Role = ChatRole.Assistant,
+        Contents = contents,
+        AuthorName = source?.AuthorName,
+        ResponseId = source?.ResponseId,
+        MessageId = source?.MessageId,
+        ConversationId = source?.ConversationId,
+        ModelId = source?.ModelId,
+        CreatedAt = source?.CreatedAt,
+    };
+
+    private List<AIContent> CreateFunctionCalls(NousParseResult parseResult)
+    {
+        // Nous XML has no call IDs. Make them unique per response so IDs never collide across turns
+        // in chat history, telemetry, or approval flows that key on CallId.
+        var responseKey = Guid.NewGuid().ToString("N")[..8];
+        var contents = new List<AIContent>(parseResult.CompletedCalls.Count);
+        foreach (var call in parseResult.CompletedCalls)
+        {
+            contents.Add(new FunctionCallContent($"{_options.ToolCallIdPrefix}_{responseKey}_{call.Ordinal}", call.Name, call.Arguments));
+        }
+
+        return contents;
     }
 
     private (List<ChatMessage> Messages, ChatOptions? Options) TransformRequest(
@@ -208,9 +207,13 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         var tools = options?.Tools;
 
         string? toolsSection = null;
-        if (tools is { Count: > 0 })
+        if (tools is { Count: > 0 } && options!.ToolMode is not NoneChatToolMode)
         {
             toolsSection = NousToolPromptBuilder.BuildToolsSection(tools);
+            if (toolsSection.Length > 0)
+            {
+                toolsSection += BuildToolModeInstructions(options);
+            }
         }
 
         var transformed = new List<ChatMessage>(messageList.Count);
@@ -249,10 +252,35 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         if (options is not null)
         {
             transformedOptions = options.Clone();
+
+            // Tool selection is expressed in the prompt. Leaving tool_choice / parallel_tool_calls set
+            // without tools makes OpenAI-compatible servers (vLLM, OpenAI) reject the request.
             transformedOptions.Tools = null;
+            transformedOptions.ToolMode = null;
+            transformedOptions.AllowMultipleToolCalls = null;
         }
 
         return (transformed, transformedOptions);
+    }
+
+    private static string BuildToolModeInstructions(ChatOptions options)
+    {
+        var sb = new StringBuilder();
+        if (options.ToolMode is RequiredChatToolMode { RequiredFunctionName: { } requiredName })
+        {
+            sb.Append($"\n\nYou must call the function \"{requiredName}\" in this response.");
+        }
+        else if (options.ToolMode is RequiredChatToolMode)
+        {
+            sb.Append("\n\nYou must call at least one function in this response.");
+        }
+
+        if (options.AllowMultipleToolCalls == false)
+        {
+            sb.Append("\n\nCall at most one function per response.");
+        }
+
+        return sb.ToString();
     }
 
     private ChatResponse TransformResponse(ChatResponse response)
@@ -285,11 +313,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
                 newContents.Add(new TextContent(parseResult.Text));
             }
 
-            foreach (var call in parseResult.CompletedCalls)
-            {
-                var callId = $"{_options.ToolCallIdPrefix}_{call.Ordinal}";
-                newContents.Add(new FunctionCallContent(callId, call.Name, call.Arguments));
-            }
+            newContents.AddRange(CreateFunctionCalls(parseResult));
 
             message.Contents.Clear();
             foreach (var content in newContents)

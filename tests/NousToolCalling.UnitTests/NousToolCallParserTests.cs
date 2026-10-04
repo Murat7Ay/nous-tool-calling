@@ -144,7 +144,7 @@ public class NousToolCallParserTests
         // Arrange
         var content = """
             <tool_call>
-            {"name": "get_weather", "arguments": {"city": "Ankara"}}
+            {"name": "get_weather", "arguments": {"city": "Ank
             """;
 
         // Act

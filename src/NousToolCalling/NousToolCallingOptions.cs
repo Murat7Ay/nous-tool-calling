@@ -23,8 +23,9 @@ public sealed class NousToolCallingOptions
     /// <summary>
     /// Gets or sets the prefix used when generating synthetic <c>CallId</c> values
     /// for <see cref="Microsoft.Extensions.AI.FunctionCallContent"/> instances.
-    /// Nous-format tool calling has no native call IDs; ordinal-based IDs are generated as
-    /// <c>{prefix}_{ordinal}</c>.
+    /// Nous-format tool calling has no native call IDs; IDs are generated as
+    /// <c>{prefix}_{responseKey}_{ordinal}</c>, where <c>responseKey</c> is random per response so IDs
+    /// stay unique across turns.
     /// </summary>
     public string ToolCallIdPrefix { get; set; } = "nous";
 }

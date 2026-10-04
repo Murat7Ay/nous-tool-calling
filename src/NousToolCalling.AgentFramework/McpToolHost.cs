@@ -1,6 +1,5 @@
 // Copyright (c) Murat Ay. Licensed under the MIT License.
 
-using System.Globalization;
 using System.Net.Http;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
@@ -67,8 +66,9 @@ public sealed class McpToolHost : IAsyncDisposable
         IDictionary<string, string>? headers,
         CancellationToken cancellationToken)
     {
-        string normalizedUrl = serverUrl.Trim().ToUpperInvariant();
-        string clientCacheKey = $"{normalizedUrl}|{ComputeHeadersHash(headers)}";
+        // Uri normalizes scheme/host casing but keeps the (case-sensitive) path intact.
+        string normalizedUrl = new Uri(serverUrl.Trim()).AbsoluteUri;
+        string clientCacheKey = $"{normalizedUrl}\n{BuildHeadersKey(headers)}";
 
         await _clientLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -120,23 +120,17 @@ public sealed class McpToolHost : IAsyncDisposable
         return await McpClient.CreateAsync(transport, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private static string ComputeHeadersHash(IDictionary<string, string>? headers)
+    private static string BuildHeadersKey(IDictionary<string, string>? headers)
     {
         if (headers is null || headers.Count == 0)
         {
             return string.Empty;
         }
 
-        SortedDictionary<string, string> sorted = new(
-            headers.ToDictionary(h => h.Key.ToUpperInvariant(), h => h.Value.ToUpperInvariant()));
-        int hashCode = 17;
-        foreach (KeyValuePair<string, string> kvp in sorted)
-        {
-            hashCode = (hashCode * 31) + StringComparer.OrdinalIgnoreCase.GetHashCode(kvp.Key);
-            hashCode = (hashCode * 31) + StringComparer.OrdinalIgnoreCase.GetHashCode(kvp.Value);
-        }
-
-        return hashCode.ToString(CultureInfo.InvariantCulture);
+        // Exact values, not a hash: tokens are case-sensitive and must never share a client.
+        return string.Join("\n", headers
+            .OrderBy(h => h.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(h => $"{h.Key.ToUpperInvariant()}:{h.Value}"));
     }
 
     /// <inheritdoc />

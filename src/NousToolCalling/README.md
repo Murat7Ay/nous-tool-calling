@@ -43,6 +43,6 @@ var response = await client.GetResponseAsync(
 |---|---|---|
 | `StrictThinkMode` | `true` | Don't parse tool calls while a `<think>` block is still open |
 | `PreserveThinkBlocks` | `false` | Store `<think>` content in `AdditionalProperties["nous_think"]` |
-| `ToolCallIdPrefix` | `"nous"` | Prefix for generated call IDs |
+| `ToolCallIdPrefix` | `"nous"` | Prefix for generated call IDs (unique per response) |
 
 Docs, samples and source: https://github.com/Murat7Ay/nous-tool-calling
