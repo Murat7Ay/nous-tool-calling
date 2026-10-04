@@ -48,3 +48,6 @@ references/
 *.env
 appsettings.*.json
 !appsettings.json
+
+## Pack output
+artifacts/

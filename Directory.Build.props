@@ -7,7 +7,11 @@
     <PackageProjectUrl>https://github.com/Murat7Ay/nous-tool-calling</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Murat7Ay/nous-tool-calling</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>ai;llm;tool-calling;function-calling;qwen;hermes;nous;microsoft-extensions-ai;ichatclient;agent-framework;mcp</PackageTags>
+    <PackageTags>ai;llm;tool-calling;function-calling;qwen;hermes;nous;on-prem;vllm;ollama;openai-compatible;microsoft-extensions-ai;ichatclient;agent-framework;mcp</PackageTags>
+    <Version>0.1.0</Version>
+
+    <!-- Only projects under src/ opt in to packing. -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
 </Project>

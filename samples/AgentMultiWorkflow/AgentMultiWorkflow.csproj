@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NousToolCalling.AgentFramework\NousToolCalling.AgentFramework.csproj" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0" />
     <PackageReference Include="OpenAI" Version="2.*" />
   </ItemGroup>
 

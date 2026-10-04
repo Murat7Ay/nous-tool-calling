@@ -1,7 +1,8 @@
 # NousToolCalling
 
 [![CI](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml/badge.svg)](https://github.com/Murat7Ay/nous-tool-calling/actions/workflows/ci.yml)
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
+[![NuGet](https://img.shields.io/nuget/v/NousToolCalling.svg)](https://www.nuget.org/packages/NousToolCalling)
+[![.NET 8 | 9](https://img.shields.io/badge/.NET-8.0%20%7C%209.0-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Prompt-based (Nous/Hermes-style) tool calling for .NET `IChatClient` pipelines.
@@ -33,12 +34,12 @@ Many open-source models use a prompt-driven tool calling convention (originating
 
 ## Installation
 
-The core library targets .NET 9+ and depends only on [`Microsoft.Extensions.AI`](https://www.nuget.org/packages/Microsoft.Extensions.AI/) (10.4.0). It isn't on NuGet yet, so clone the repo and add a project reference:
-
 ```bash
-git clone https://github.com/Murat7Ay/nous-tool-calling.git
-dotnet add <YourProject>.csproj reference nous-tool-calling/src/NousToolCalling/NousToolCalling.csproj
+dotnet add package NousToolCalling                  # core decorator (depends only on Microsoft.Extensions.AI)
+dotnet add package NousToolCalling.AgentFramework   # optional: ChatClientAgent pipeline + MCP tool host
 ```
+
+Targets .NET 8 and .NET 9.
 
 ## Usage
 

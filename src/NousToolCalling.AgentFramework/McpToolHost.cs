@@ -10,7 +10,7 @@ namespace NousToolCalling.AgentFramework;
 /// <summary>
 /// Connects to remote MCP servers over HTTP (streamable HTTP / SSE via <see cref="HttpTransportMode"/>)
 /// and surfaces server tools the way the official MCP C# SDK and Microsoft docs intend:
-/// <see cref="McpClient.ListToolsAsync"/> → <see cref="McpClientTool"/> (inherits <see cref="AIFunction"/> with server <c>inputSchema</c>).
+/// <c>McpClient.ListToolsAsync</c> → <see cref="McpClientTool"/> (inherits <see cref="AIFunction"/> with server <c>inputSchema</c>).
 /// </summary>
 /// <remarks>
 /// See: https://learn.microsoft.com/dotnet/ai/quickstarts/build-mcp-client and
