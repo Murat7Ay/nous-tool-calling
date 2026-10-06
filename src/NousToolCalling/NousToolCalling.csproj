@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <Title>NousToolCalling</Title>
-    <Description>Prompt-based (Nous-style) tool calling for IChatClient. Makes on-prem / OpenAI-compatible models (Qwen, Hermes, DeepSeek via vLLM, llama.cpp, Ollama) that emit &lt;tool_call&gt; XML in plain text work with FunctionInvokingChatClient and Microsoft Agent Framework tools.</Description>
+    <Description>Prompt-based (Nous-style) tool calling for IChatClient. Makes on-prem / OpenAI-compatible models (Qwen, Hermes, DeepSeek, GLM via vLLM, llama.cpp, Ollama) that emit &lt;tool_call&gt; blocks in plain text work with FunctionInvokingChatClient and Microsoft Agent Framework tools.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -7,7 +7,7 @@
 
 Prompt-based (Nous/Hermes-style) tool calling for .NET `IChatClient` pipelines.
 
-Translates between `FunctionCallContent`/`FunctionResultContent` (the standard `Microsoft.Extensions.AI` protocol) and the **XML-wrapped tool call format** used by models like Qwen, DeepSeek, and other open-source LLMs that don't support native OpenAI `tools`/`tool_calls` API.
+Translates between `FunctionCallContent`/`FunctionResultContent` (the standard `Microsoft.Extensions.AI` protocol) and the **XML-wrapped tool call format** used by models like Qwen, DeepSeek, GLM and other open-source LLMs that don't support native OpenAI `tools`/`tool_calls` API.
 
 ## Why?
 
@@ -96,6 +96,55 @@ If the order is reversed, `FunctionInvokingChatClient` will see raw XML text ins
 | `StrictThinkMode` | `true` | Defer tool-call extraction while a `<think>` block is open (prevents false positives during model reasoning) |
 | `PreserveThinkBlocks` | `false` | Store `<think>` content in `message.AdditionalProperties["nous_think"]` |
 | `ToolCallIdPrefix` | `"nous"` | Prefix for generated call IDs (`{prefix}_{responseKey}_{ordinal}`, unique per response) |
+| `ToolCallFormat` | `Hermes` | `Hermes` (JSON in `<tool_call>`), `Glm` (`<arg_key>`/`<arg_value>`, GLM-4.5+ / GLM-5.x), or `Auto` (accepts both) |
+
+## GLM models (GLM-4.5 … GLM-5.3-Flash) on vLLM
+
+Written against vLLM 0.30.0 (`glm45` / `glm47` tool and reasoning parsers) and the zai-org GLM-4.5, 4.6, 4.7, 4.7-Flash, 5.x and 5.3-Flash chat templates.
+
+**1. Normalize the HTTP traffic.** `GlmNormalizationHandler` is an `HttpMessageHandler` that fixes the raw `/chat/completions` JSON before any SDK reads it, so it works with the OpenAI .NET SDK and `Microsoft.Extensions.AI.OpenAI`:
+
+```csharp
+using System.ClientModel.Primitives;
+using NousToolCalling;
+
+var http = new HttpClient(new GlmNormalizationHandler(new SocketsHttpHandler()));  // optional: GlmNormalizationOptions, ILogger
+
+IChatClient leaf = new OpenAI.OpenAIClient(
+        new System.ClientModel.ApiKeyCredential("not-needed"),
+        new OpenAI.OpenAIClientOptions { Endpoint = new Uri("http://localhost:8000/v1"), Transport = new HttpClientPipelineTransport(http) })
+    .GetChatClient("zai-org/GLM-5.3-Flash")
+    .AsIChatClient();
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `StripReasoningFromHistory` | `true` | Removes `reasoning` / `reasoning_content` from the messages sent back to the server |
+| `EnableThinking` | `null` | `null` removes `chat_template_kwargs.enable_thinking` from requests; set it to send it. GLM-5.3 always thinks, and `false` makes the reasoning leak into the content |
+| `StripThinkTags` | `true` | Moves `<think>…</think>` (or text before a lone `</think>`) out of non-streaming content |
+| `ReasoningAsContentFallback` | `true` | When a choice ends with empty content and no tool calls, the reasoning becomes the answer (streaming and non-streaming). Reasoning deltas are joined with nothing in between |
+| `MirrorReasoningContent` | `true` | Copies `reasoning` to `reasoning_content`, which `Microsoft.Extensions.AI.OpenAI` surfaces as `TextReasoningContent` |
+| `DecodeUnicodeEscapes` | `true` | Decodes literal `\u00fc` / `\ud83d\ude00` text in content and reasoning; code points below 0x20 stay as written; escapes split across stream chunks are held until complete |
+| `DropEmptyChoicesChunks` | `true` | Drops the final usage-only chunk whose `choices` is empty |
+| `HandleUpstreamErrors` | `true` | Closes a stream that breaks mid-answer cleanly, turns connection failures into HTTP 502 with an OpenAI-style error body, and wraps bare `{"object":"error",…}` bodies in `{"error": …}` |
+
+A warning is logged when a choice ends with `finish_reason: "length"` and no content: `max_tokens` was too low and the model was cut off while thinking. Connection settings such as timeouts belong on the inner handler you pass in.
+
+**2. Tool calls.** Which setup you need depends on how vLLM is started:
+
+- **vLLM's GLM tool parser on** (`--enable-auto-tool-choice --tool-call-parser glm47 --reasoning-parser glm45`): the server returns native `tool_calls`. Use the handler and `UseFunctionInvocation()` only; no `UseNousToolCalling()` needed.
+- **Tool parser off**: the model writes calls as text, `<tool_call>get_weather<arg_key>city</arg_key><arg_value>Istanbul</arg_value></tool_call>`. Add `UseNousToolCalling` with the GLM format:
+
+```csharp
+IChatClient client = leaf.AsBuilder()
+    .UseFunctionInvocation()
+    .UseNousToolCalling(new NousToolCallingOptions { ToolCallFormat = NousToolCallFormat.Glm })
+    .Build();
+```
+
+The GLM format writes the tools prompt and the tool-call history the way the GLM chat templates do, accepts GLM-4.5 (newline-separated) and GLM-4.7+ (single-line) calls, calls without arguments, several calls per reply, and tags split across stream chunks. Argument values are text; they are converted to numbers, booleans, objects and arrays using the tool's JSON schema. Output that carries only a closing `</think>` (GLM-4.7+ prompts already open the block) is treated as reasoning and never blocks streaming.
+
+`NousToolCallFormat.Auto` accepts both Hermes and GLM calls in the output and picks the GLM prompt when the model id contains `glm`.
 
 ## Features
 
@@ -107,6 +156,7 @@ If the order is reversed, `FunctionInvokingChatClient` will see raw XML text ins
 - Supports `<think>` block handling (strict and lenient modes)
 - Works with both `GetResponseAsync` and `GetStreamingResponseAsync` (usage, finish reason and other non-text content pass through)
 - Respects `ChatOptions.ToolMode` (`None`, `RequireAny`, `RequireSpecific`) and `AllowMultipleToolCalls` via prompt instructions
+- GLM tool-call format and a GLM/vLLM HTTP normalization handler (see above)
 - Tolerates common model quirks: stringified `arguments`, `parameters` alias, missing `arguments`, missing closing `</tool_call>`
 
 ## Microsoft Agent Framework composition

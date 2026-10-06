@@ -29,7 +29,7 @@ public readonly record struct NousParseResult(
     bool ThinkBlockOpen);
 
 /// <summary>
-/// Parses assistant content for Nous-style <c>&lt;tool_call&gt;</c> blocks.
+/// Parses assistant content for <c>&lt;tool_call&gt;</c> blocks in the Nous/Hermes JSON format or the GLM XML format.
 /// This parser is stateless and operates on the full (possibly accumulated) content string.
 /// </summary>
 public static class NousToolCallParser
@@ -49,6 +49,26 @@ public static class NousToolCallParser
     /// </param>
     /// <returns>A <see cref="NousParseResult"/> containing completed calls and text.</returns>
     public static NousParseResult Parse(string? raw, bool strictThink)
+        => Parse(raw, strictThink, NousToolCallFormat.Hermes, null);
+
+    /// <summary>
+    /// Parses the raw assistant content in the given tool-call format and extracts completed tool calls and text.
+    /// </summary>
+    /// <param name="raw">The full assistant content string.</param>
+    /// <param name="strictThink">
+    /// When <see langword="true"/>, if a <c>&lt;think&gt;</c> block is open and unclosed,
+    /// all tool-call parsing is deferred and the content is returned as text only.
+    /// </param>
+    /// <param name="format">The tool-call format to accept.</param>
+    /// <param name="toolSchemas">
+    /// Tool name to parameters JSON schema. Used by the GLM format to convert argument text to typed values.
+    /// </param>
+    /// <returns>A <see cref="NousParseResult"/> containing completed calls and text.</returns>
+    public static NousParseResult Parse(
+        string? raw,
+        bool strictThink,
+        NousToolCallFormat format,
+        IReadOnlyDictionary<string, JsonElement>? toolSchemas)
     {
         if (string.IsNullOrEmpty(raw))
         {
@@ -60,7 +80,17 @@ public static class NousToolCallParser
         bool thinkOpen = false;
 
         var thinkOpenIdx = work.IndexOf(ThinkOpen, StringComparison.Ordinal);
-        if (thinkOpenIdx >= 0)
+        var loneCloseIdx = thinkOpenIdx < 0 && format != NousToolCallFormat.Hermes
+            ? work.IndexOf(ThinkClose, StringComparison.Ordinal)
+            : -1;
+        if (loneCloseIdx >= 0)
+        {
+            // GLM-4.7+ ends the prompt with <think>, so the output may carry only the closing tag:
+            // everything before it is reasoning.
+            thinkContent = work[..loneCloseIdx].Trim();
+            work = work[(loneCloseIdx + ThinkClose.Length)..];
+        }
+        else if (thinkOpenIdx >= 0)
         {
             var thinkCloseIdx = work.IndexOf(ThinkClose, thinkOpenIdx, StringComparison.Ordinal);
             if (thinkCloseIdx < 0)
@@ -113,7 +143,10 @@ public static class NousToolCallParser
                 // Some models omit the closing tag on the last call. Accept it if the rest is a
                 // complete call; otherwise (e.g. truncated output) keep it as text so nothing is lost.
                 var tail = work[contentStart..].Trim();
-                var tailCall = TryParseToolCallJson(tail);
+                // GLM calls always carry the closing tag (vLLM requires it too), so only JSON calls are accepted here.
+                var tailCall = format == NousToolCallFormat.Glm || (format == NousToolCallFormat.Auto && !tail.StartsWith('{'))
+                    ? null
+                    : TryParseToolCallJson(tail);
                 if (tailCall is not null)
                 {
                     completedCalls.Add(new NousCompletedToolCall(tailCall.Value.Name, tailCall.Value.Arguments, ordinal++));
@@ -127,7 +160,7 @@ public static class NousToolCallParser
             }
 
             var jsonText = work[contentStart..closeIdx].Trim();
-            var parsed = TryParseToolCallJson(jsonText);
+            var parsed = TryParseToolCallBody(jsonText, format, toolSchemas);
             if (parsed is not null)
             {
                 completedCalls.Add(new NousCompletedToolCall(parsed.Value.Name, parsed.Value.Arguments, ordinal++));
@@ -143,6 +176,16 @@ public static class NousToolCallParser
         var text = string.Join("\n", textParts).Trim();
         return new NousParseResult(completedCalls, text, thinkContent, thinkOpen);
     }
+
+    private static (string Name, IDictionary<string, object?> Arguments)? TryParseToolCallBody(
+        string body,
+        NousToolCallFormat format,
+        IReadOnlyDictionary<string, JsonElement>? toolSchemas) => format switch
+        {
+            NousToolCallFormat.Glm => GlmToolCallParser.TryParse(body, toolSchemas),
+            NousToolCallFormat.Auto when !body.StartsWith('{') => GlmToolCallParser.TryParse(body, toolSchemas),
+            _ => TryParseToolCallJson(body),
+        };
 
     private static (string Name, IDictionary<string, object?> Arguments)? TryParseToolCallJson(string jsonText)
     {
@@ -208,7 +251,7 @@ public static class NousToolCallParser
         return result;
     }
 
-    private static object? ConvertJsonElement(JsonElement element)
+    internal static object? ConvertJsonElement(JsonElement element)
     {
         return element.ValueKind switch
         {

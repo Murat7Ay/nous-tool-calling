@@ -28,4 +28,11 @@ public sealed class NousToolCallingOptions
     /// stay unique across turns.
     /// </summary>
     public string ToolCallIdPrefix { get; set; } = "nous";
+
+    /// <summary>
+    /// Gets or sets the tool-call text format the model uses. The default is <see cref="NousToolCallFormat.Hermes"/>.
+    /// Use <see cref="NousToolCallFormat.Glm"/> for GLM-4.5+ / GLM-5.x models served without vLLM's GLM tool parser,
+    /// or <see cref="NousToolCallFormat.Auto"/> to accept both formats in the output.
+    /// </summary>
+    public NousToolCallFormat ToolCallFormat { get; set; } = NousToolCallFormat.Hermes;
 }

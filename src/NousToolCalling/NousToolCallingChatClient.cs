@@ -60,11 +60,11 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var (transformedMessages, transformedOptions) = TransformRequest(messages, options);
+        var request = TransformRequest(messages, options);
 
-        var response = await base.GetResponseAsync(transformedMessages, transformedOptions, cancellationToken).ConfigureAwait(false);
+        var response = await base.GetResponseAsync(request.Messages, request.Options, cancellationToken).ConfigureAwait(false);
 
-        return TransformResponse(response);
+        return TransformResponse(response, request.ToolSchemas);
     }
 
     /// <inheritdoc/>
@@ -73,7 +73,8 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var (transformedMessages, transformedOptions) = TransformRequest(messages, options);
+        var request = TransformRequest(messages, options);
+        var format = _options.ToolCallFormat;
 
         var accumulated = new StringBuilder();
         int yieldedUpTo = 0;
@@ -84,7 +85,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         const string toolCallOpenTag = "<tool_call>";
         const string thinkOpenTag = "<think>";
 
-        await foreach (var update in base.GetStreamingResponseAsync(transformedMessages, transformedOptions, cancellationToken).ConfigureAwait(false))
+        await foreach (var update in base.GetStreamingResponseAsync(request.Messages, request.Options, cancellationToken).ConfigureAwait(false))
         {
             lastUpdate = update;
             finishReason = update.FinishReason ?? finishReason;
@@ -145,12 +146,12 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         }
 
         var fullContent = accumulated.ToString();
-        var parseResult = NousToolCallParser.Parse(fullContent, _options.StrictThinkMode);
+        var parseResult = NousToolCallParser.Parse(fullContent, _options.StrictThinkMode, format, request.ToolSchemas);
 
         if (parseResult.CompletedCalls.Count > 0)
         {
             // Only the not-yet-emitted tail can still contain text the caller hasn't seen.
-            var remainingText = NousToolCallParser.Parse(fullContent[yieldedUpTo..], _options.StrictThinkMode).Text;
+            var remainingText = NousToolCallParser.Parse(fullContent[yieldedUpTo..], _options.StrictThinkMode, format, request.ToolSchemas).Text;
             if (remainingText.Length > 0)
             {
                 yield return CreateUpdate(lastUpdate, [new TextContent(remainingText)]);
@@ -199,17 +200,28 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         return contents;
     }
 
-    private (List<ChatMessage> Messages, ChatOptions? Options) TransformRequest(
+    private (List<ChatMessage> Messages, ChatOptions? Options, IReadOnlyDictionary<string, JsonElement>? ToolSchemas) TransformRequest(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options)
     {
         var messageList = messages.ToList();
         var tools = options?.Tools;
+        var promptFormat = ResolvePromptFormat(options);
 
         string? toolsSection = null;
+        Dictionary<string, JsonElement>? toolSchemas = null;
         if (tools is { Count: > 0 } && options!.ToolMode is not NoneChatToolMode)
         {
-            toolsSection = NousToolPromptBuilder.BuildToolsSection(tools);
+            toolSchemas = [];
+            foreach (var tool in tools)
+            {
+                if (tool is AIFunction fn)
+                {
+                    toolSchemas[fn.Name] = fn.JsonSchema;
+                }
+            }
+
+            toolsSection = NousToolPromptBuilder.BuildToolsSection(tools, promptFormat);
             if (toolsSection.Length > 0)
             {
                 toolsSection += BuildToolModeInstructions(options);
@@ -231,11 +243,11 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
             }
             else if (msg.Role == ChatRole.Assistant && HasFunctionCallContent(msg))
             {
-                transformed.Add(ConvertAssistantMessage(msg));
+                transformed.Add(ConvertAssistantMessage(msg, promptFormat));
             }
             else if (msg.Role == ChatRole.Tool)
             {
-                AppendToolResponseMessages(transformed, msg);
+                AppendToolResponseMessages(transformed, msg, promptFormat);
             }
             else
             {
@@ -260,7 +272,24 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
             transformedOptions.AllowMultipleToolCalls = null;
         }
 
-        return (transformed, transformedOptions);
+        return (transformed, transformedOptions, toolSchemas);
+    }
+
+    /// <summary>
+    /// The format the tools prompt and the tool-call history are written in. <see cref="NousToolCallFormat.Auto"/>
+    /// picks GLM when the model id names a GLM model.
+    /// </summary>
+    private NousToolCallFormat ResolvePromptFormat(ChatOptions? options)
+    {
+        if (_options.ToolCallFormat != NousToolCallFormat.Auto)
+        {
+            return _options.ToolCallFormat;
+        }
+
+        var modelId = options?.ModelId ?? InnerClient.GetService<ChatClientMetadata>()?.DefaultModelId;
+        return modelId?.Contains("glm", StringComparison.OrdinalIgnoreCase) == true
+            ? NousToolCallFormat.Glm
+            : NousToolCallFormat.Hermes;
     }
 
     private static string BuildToolModeInstructions(ChatOptions options)
@@ -283,7 +312,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         return sb.ToString();
     }
 
-    private ChatResponse TransformResponse(ChatResponse response)
+    private ChatResponse TransformResponse(ChatResponse response, IReadOnlyDictionary<string, JsonElement>? toolSchemas)
     {
         foreach (var message in response.Messages)
         {
@@ -298,7 +327,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
                 continue;
             }
 
-            var parseResult = NousToolCallParser.Parse(textContent, _options.StrictThinkMode);
+            var parseResult = NousToolCallParser.Parse(textContent, _options.StrictThinkMode, _options.ToolCallFormat, toolSchemas);
 
             if (parseResult.CompletedCalls.Count == 0)
             {
@@ -329,7 +358,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         return response;
     }
 
-    private static ChatMessage ConvertAssistantMessage(ChatMessage original)
+    private static ChatMessage ConvertAssistantMessage(ChatMessage original, NousToolCallFormat format)
     {
         var sb = new StringBuilder();
 
@@ -346,7 +375,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
                     sb.Append('\n');
                 }
 
-                sb.Append(NousToolPromptBuilder.FormatToolCall(fcc.Name, fcc.Arguments));
+                sb.Append(NousToolPromptBuilder.FormatToolCall(fcc.Name, fcc.Arguments, format));
             }
         }
 
@@ -357,7 +386,7 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
         };
     }
 
-    private static void AppendToolResponseMessages(List<ChatMessage> target, ChatMessage toolMessage)
+    private static void AppendToolResponseMessages(List<ChatMessage> target, ChatMessage toolMessage, NousToolCallFormat format)
     {
         var sb = new StringBuilder();
         foreach (var content in toolMessage.Contents)
@@ -365,12 +394,12 @@ public sealed class NousToolCallingChatClient : DelegatingChatClient
             if (content is FunctionResultContent frc)
             {
                 var resultText = frc.Result is string s ? s : JsonSerializer.Serialize(frc.Result, s_compactJson);
-                if (sb.Length > 0)
+                if (sb.Length > 0 && format != NousToolCallFormat.Glm)
                 {
                     sb.Append('\n');
                 }
 
-                sb.Append(NousToolPromptBuilder.FormatToolResponse(resultText));
+                sb.Append(NousToolPromptBuilder.FormatToolResponse(resultText, format));
             }
         }
 
